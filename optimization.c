@@ -20,6 +20,16 @@ list_t *shadow_hash_list;
 
 static inline void shack_init(CPUState *env)
 {
+    env->shack = (uint64_t*) malloc(sizeof(uint64_t) * SHACK_SIZE);
+    env->shadow_hash_list = (void*) malloc(sizeof(void*) * SHACK_SIZE);
+    env->shadow_ret_addr = (unsigned long*) malloc(sizeof(unsigned long) * SHACK_SIZE);
+    memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
+    memset(env->shadow_hash_list, 0, sizeof(void) * SHACK_SIZE);
+    memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
+    env->shack_top = env_shack;
+    env->shack_end = env_shack;
+
+
 }
 
 /*
