@@ -20,16 +20,16 @@ list_t *shadow_hash_list;
 
 static inline void shack_init(CPUState *env)
 {
+
     env->shack = (uint64_t*) malloc(sizeof(uint64_t) * SHACK_SIZE);
-    env->shadow_hash_list = (void*) malloc(sizeof(void*) * SHACK_SIZE);
+    env->shadow_hash_list = (void*) malloc(sizeof(struct shadow_pair) * SHACK_SIZE);
     env->shadow_ret_addr = (unsigned long*) malloc(sizeof(unsigned long) * SHACK_SIZE);
     memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
-    memset(env->shadow_hash_list, 0, sizeof(void) * SHACK_SIZE);
+    memset(env->shadow_hash_list, 0, sizeof(struct shadow_pair) * SHACK_SIZE);
     memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
-    env->shack_top = env_shack;
-    env->shack_end = env_shack;
-
-
+    env->shack_top = env->shack;
+    env->shack_end = env->shack + SHACK_SIZE ;
+    
 }
 
 /*
@@ -46,14 +46,24 @@ static inline void shack_init(CPUState *env)
  */
 void helper_shack_flush(CPUState *env)
 {
+    memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
+    memset(env->shadow_hash_list, 0, sizeof(struct shadow_pair) * SHACK_SIZE);
+    memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
+    env->shack_top = env->shack;
+    env->shack_end = env->shack + SHACK_SIZE ;
 }
 
 /*
  * push_shack()
  *  Push next guest eip into shadow stack.
  */
+void helper_hello ()
+{
+    printf("hello QEMU!\n");
+}
 void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
 {
+    gen_helper_hello();
 }
 
 /*
