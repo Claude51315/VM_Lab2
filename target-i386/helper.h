@@ -219,5 +219,6 @@ DEF_HELPER_2(rcrq, tl, tl, tl)
 
 DEF_HELPER_FLAGS_1(shack_flush, TCG_CALL_CONST, void, env)
 DEF_HELPER_FLAGS_1(lookup_ibtc, TCG_CALL_CONST, ptr, tl)
-DEF_HELPER_FLAGS_0(hello, TCG_CALL_CONST,void)
+DEF_HELPER_FLAGS_1(hello, TCG_CALL_CONST, void, tl)
+DEF_HELPER_FLAGS_1(hello2, TCG_CALL_CONST, void, tl)
 #include "def-helper.h"
