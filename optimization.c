@@ -60,11 +60,11 @@ void helper_shack_flush(CPUState *env)
  
 void helper_hello (unsigned int v)
 {
-    printf("before = %u\n",v);
+    printf("push = %u\n",16384 - (v>>3));
 }
 void helper_hello2 (unsigned int v)
 {
-    printf("after = %u\n",v);
+    printf("pop = %u\n",16384 - (v >>3));
 }
 void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
 {
@@ -87,7 +87,7 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
     for(;;) {
         tb = *ptb1;
         if (!tb)
-            goto not_found;
+            goto not_found_t;
         if (tb->pc == pc &&
             tb->page_addr[0] == phys_page1 &&
             tb->cs_base == cs_base &&
@@ -98,18 +98,18 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
                     TARGET_PAGE_SIZE;
                 phys_page2 = get_page_addr_code(env, virt_page2);
                 if (tb->page_addr[1] == phys_page2)
-                    goto found;
+                    goto found_t;
             } else {
-                goto found;
+                goto found_t;
             }
         }
         ptb1 = &tb->phys_hash_next;
     }
- not_found:
+ not_found_t:
    /* if no translated code available, then translate it now */
-    //tb = tb_gen_code(env, pc, cs_base, flags, 0);
+   // tb = tb_gen_code(env, pc, cs_base, flags, 0);
     
- found:
+ found_t:
     /* we add the TB in the virtual pc hash table */
     //env->tb_jmp_cache[tb_jmp_cache_hash_func(pc)] = tb;
     // host
@@ -117,6 +117,7 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
 
 ///////////////////////////////////////////////////////
     TCGv_ptr temp_shack_top = tcg_temp_new_ptr();
+    TCGv_ptr temp_shack_end = tcg_temp_new_ptr();
     size_t r= env->shack_end - env->shack_top;
     
    //if(r == 0){
@@ -127,6 +128,7 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
 
     // temp_shack = (env->shack_top)
     tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
+    tcg_gen_ld_ptr(temp_shack_end, cpu_env, offsetof(CPUState, shack_end));
     
     // *(env->shack_top) = qqq;
     tcg_gen_st_tl(tcg_const_tl(qqq++), temp_shack_top,0);
@@ -135,7 +137,11 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
     tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     
     
+    tcg_gen_sub_tl(temp_shack_end, temp_shack_end, temp_shack_top); 
+    gen_helper_hello(temp_shack_end);
+    
     tcg_temp_free(temp_shack_top);
+    tcg_temp_free(temp_shack_end);
     
     
     //printf("remain = %lu\n",env->shack_end - env->shack_top);
@@ -149,19 +155,24 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
 void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
 {
     TCGv_ptr temp_shack_top = tcg_temp_new_ptr();
+    TCGv_ptr temp_shack_end = tcg_temp_new_ptr();
     TCGv qq1,qq2;
     qq1 = tcg_temp_new();
     qq2 = tcg_temp_new();
     // temp_shack = (env->shack_top)
     tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
+    tcg_gen_ld_ptr(temp_shack_end, cpu_env, offsetof(CPUState, shack_end));
     tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, -8);
+    tcg_gen_sub_tl(temp_shack_end, temp_shack_end, temp_shack_top); 
+    gen_helper_hello2(temp_shack_end);
+
     tcg_gen_ld_tl(qq1, temp_shack_top,0);
     tcg_gen_ld_tl(qq2, temp_shack_top,4);
     //tcg_gen_ld_tl(qq1, temp_shack_top,0);
-    gen_helper_hello(qq1);
-    gen_helper_hello2(qq2);
+    //gen_helper_hello(qq1);
     tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     tcg_temp_free(temp_shack_top);
+    tcg_temp_free(temp_shack_end);
     tcg_temp_free(qq1);
     tcg_temp_free(qq2);
    ////// 
