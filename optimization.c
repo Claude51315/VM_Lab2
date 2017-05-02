@@ -22,7 +22,7 @@ static inline void shack_init(CPUState *env)
 {
 
     env->shack = (uint64_t*) malloc(sizeof(uint64_t) * SHACK_SIZE);
-    env->shadow_hash_list = (void*) malloc(sizeof(struct shadow_pair) * SHACK_SIZE);
+    env->shadow_hash_list = (void*) malloc(sizeof(struct list_t *) * SHACK_HTABLE_SIZE);
     env->shadow_ret_addr = (unsigned long*) malloc(sizeof(unsigned long) * SHACK_SIZE);
     memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
     memset(env->shadow_hash_list, 0, sizeof(struct shadow_pair) * SHACK_SIZE);
@@ -48,7 +48,7 @@ void helper_shack_flush(CPUState *env)
 {
     memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
     memset(env->shadow_hash_list, 0, sizeof(struct shadow_pair) * SHACK_SIZE);
-    memset(env->shack, 0, sizeof(uint64_t) * SHACK_SIZE);
+    memset(env->shack_ret_addr, 0, sizeof(unsigned long) * SHACK_SIZE);
     env->shack_top = env->shack;
     env->shack_end = env->shack + SHACK_SIZE ;
 }
@@ -119,21 +119,31 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
     if(found){
         tc_ptr = (target_ulong) tb->tc_ptr;
     }
-    
-    int L_FULL = gen_new_label();
+    else{
+        
+    }
+    /* tcg gen code start */
+
+    int L_NFULL = gen_new_label();
     TCGv_ptr temp_shack_top = tcg_temp_local_new_ptr();
     TCGv_ptr temp_shack_end = tcg_temp_local_new_ptr();
-    
+   
+
     tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     tcg_gen_ld_ptr(temp_shack_end, cpu_env, offsetof(CPUState, shack_end));
-    tcg_gen_brcond_tl(TCG_COND_EQ, temp_shack_top, temp_shack_end, L_FULL);
+    tcg_gen_brcond_tl(TCG_COND_NE, temp_shack_top, temp_shack_end, L_NFULL);
     /* stack not full, push shack*/
+    gen_helper_shack_flush(cpu_env);
+    gen_set_label(L_NFULL);
+    
+    if(found)
+
+
     tcg_gen_st_tl(tcg_const_tl(next_eip), temp_shack_top,0);
     tcg_gen_st_tl(tcg_const_tl(tc_ptr), temp_shack_top,4);
     tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, 8);
     tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     
-    gen_set_label(L_FULL);
     
     /* debug 
     TCGv_ptr temp_shack = tcg_temp_new_ptr();
