@@ -2016,7 +2016,7 @@ static inline int tcg_gen_code_common(TCGContext *s, uint8_t *gen_code_buf,
         tcg_table_op_count[opc]++;
 #endif
         def = &tcg_op_defs[opc];
-#if 0
+#if 0 
         printf("%s: %d %d %d\n", def->name,
                def->nb_oargs, def->nb_iargs, def->nb_cargs);
         //        dump_regs(s);
