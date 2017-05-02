@@ -165,8 +165,6 @@ void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
     tcg_gen_brcond_tl(TCG_COND_EQ, temp_shack_top, temp_shack, L_EMPTY);
 
     tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, -8);
-    s_next_eip = tcg_temp_new();
-    s_host_eip = tcg_temp_new();
     tcg_gen_ld_tl(s_next_eip, temp_shack_top, 0);
     tcg_gen_ld_tl(s_host_eip, temp_shack_top, 4);
     /* how to compare and set jump?  */
