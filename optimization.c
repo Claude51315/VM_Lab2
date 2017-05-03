@@ -99,7 +99,10 @@ void helper_hello2 (unsigned int v, target_ulong gip, target_ulong hip)
 {
     printf("pop  = %d, gip = 0x%x, hip = 0x%x\n",(v >>3), gip, hip);
 }
-
+void helper_ptl(target_ulong tll)
+{
+    printf("tl = 0x%x\n", tll);
+}
 void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
 {
 
@@ -164,55 +167,65 @@ found_t:
     TCGv_ptr temp_shadow_ret_addr = tcg_temp_local_new_ptr();
     TCGv_ptr temp_host_ret_addr = tcg_const_local_tl((uint32_t)tc_ptr);
     TCGv_ptr temp_guest_ret_addr = tcg_const_local_tl(next_eip);
-
+    /* if shack full then flush */
     tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     tcg_gen_ld_ptr(temp_shack_end, cpu_env, offsetof(CPUState, shack_end));
+    //gen_helper_ptl(temp_shack_top); 
     tcg_gen_brcond_tl(TCG_COND_NE, temp_shack_top, temp_shack_end, L_NFULL);
     /* stack full, flush shack*/
     gen_helper_shack_flush(cpu_env);
+    /* stack not full */
     gen_set_label(L_NFULL);
-
+    // push guest_ret_addr to shack
     tcg_gen_st_tl(temp_guest_ret_addr, temp_shack_top,0);
+    tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, 8);
+    tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
+    gen_helper_ptl(temp_shack_top);
+    tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, -8);
 
-    if(found)
-        tcg_gen_st_tl(temp_host_ret_addr, temp_shack_top,4);
-    else {
+    if(!found){
+        //not found!!
+        //lookup hashtable
         h = shack_hash(next_eip);
         list_t *head = &shadow_hash_list[h];
+        //creat shadow_pair
         struct shadow_pair *new_node = malloc(sizeof(struct shadow_pair));
         list_t *new =  &(new_node->l);
-
+        
+        new_node->guest_eip = next_eip;
+        new_node->shadow_slot = &env->shadow_ret_addr[env->shadow_ret_count];
+        //insert shadow_pair into hashtable
         new->next = head->next;
         new->prev = head;
         if(head->next)
             head->next->prev = new;
         head->next = new;
 
-        new_node->guest_eip = next_eip;
-        new_node->shadow_slot = &env->shadow_ret_addr[env->shadow_ret_count];
-        // generrate tcg code
+        // generrate tcg code to load host_ret_addr from corresponding shadow_ret_addr
         tcg_gen_ld_ptr(temp_shadow_ret_addr, cpu_env, offsetof(CPUState, shadow_ret_addr));
         tcg_gen_addi_ptr(temp_shadow_ret_addr, temp_shadow_ret_addr, env->shadow_ret_count * sizeof(unsigned long *));
         tcg_gen_ld_tl(temp_host_ret_addr, temp_shadow_ret_addr, 0); 
-        tcg_gen_st_tl(temp_host_ret_addr, temp_shack_top, 4);
         env->shadow_ret_count++;
     }
+    tcg_gen_st_tl(temp_host_ret_addr, temp_shack_top, 4);
+    //tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, 8);
+    //gen_helper_ptl(temp_shack_top); 
+    //tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
+    //tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
+    //gen_helper_ptl(temp_shack_top); 
 
-
-    tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, 8);
-    tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
-
-    {//debug 
-       TCGv_ptr temp_shack = tcg_temp_new_ptr();
-       tcg_gen_ld_ptr(temp_shack, cpu_env, offsetof(CPUState, shack));
-       tcg_gen_sub_tl(temp_shack, temp_shack_top, temp_shack); 
-       //gen_helper_hello(temp_shack);
-        gen_helper_hello(temp_shack, temp_guest_ret_addr, temp_host_ret_addr);
-    }
+#if 1       
+    TCGv_ptr temp_shack = tcg_temp_new_ptr();
+    tcg_gen_ld_ptr(temp_shack, cpu_env, offsetof(CPUState, shack));
+    tcg_gen_sub_tl(temp_shack, temp_shack_top, temp_shack); 
+    gen_helper_hello(temp_shack, temp_guest_ret_addr, temp_host_ret_addr);
+    tcg_temp_free(temp_shack);
+#endif
     tcg_temp_free(temp_shack_top);
     tcg_temp_free(temp_shack_end);
     tcg_temp_free(temp_shadow_ret_addr);
     tcg_temp_free(temp_host_ret_addr);
+    tcg_temp_free(temp_guest_ret_addr);
 }
 
 /*
@@ -249,17 +262,17 @@ void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
     *gen_opparam_ptr++ = GET_TCGV_i32(s_host_eip);
     gen_set_label(L_NEQ);
     gen_set_label(L_EMPTY);
-    // debug 
-    {
-       tcg_gen_sub_tl(temp_shack, temp_shack_top, temp_shack); 
-       gen_helper_hello2(temp_shack, s_next_eip, s_host_eip);
-    }
 
+#if 1 
+    tcg_gen_sub_tl(temp_shack, temp_shack_top, temp_shack); 
+    gen_helper_hello2(temp_shack, s_next_eip, s_host_eip);
+#endif
 
     tcg_temp_free(temp_shack_top);
     tcg_temp_free(temp_shack);
     tcg_temp_free(s_next_eip);
     tcg_temp_free(s_host_eip);
+    tcg_temp_free(m_next_eip);
 
 }
 
