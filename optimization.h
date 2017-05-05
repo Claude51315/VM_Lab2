@@ -39,8 +39,8 @@ typedef struct list_head list_t;
 #define TCGv TCGv_i64
 #endif
 
-#define MAX_CALL_SLOT   (16 * 1024)
-#define SHACK_SIZE      (16 * 1024)
+#define MAX_CALL_SLOT   (16 * 16384)
+#define SHACK_SIZE      (16 * 16384)
 #define SHACK_HTABLE_SIZE (1024)
 
 struct shadow_pair
