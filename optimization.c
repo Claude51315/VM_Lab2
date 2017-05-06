@@ -55,7 +55,7 @@ void shack_set_shadow(CPUState *env, target_ulong guest_eip, unsigned long *host
         pair = (struct shadow_pair *)head;
         if(pair->guest_eip == guest_eip){
             *(pair->shadow_slot) = host_eip;
-            printf("shack_set:gip = 0x%x, hip = %p\n", guest_eip, host_eip);
+            //printf("shack_set:gip = 0x%x, hip = %p\n", guest_eip, host_eip);
             break;
         }
         head = head->next;
@@ -156,7 +156,7 @@ found_t:
     // host
     if(found){
         tc_ptr = (unsigned long *)tb->tc_ptr;
-        printf("found!\n");
+        //printf("found!\n");
     }
 
     /* tcg gen code start */
@@ -180,7 +180,7 @@ found_t:
     tcg_gen_st_tl(temp_guest_ret_addr, temp_shack_top,0);
     tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, 8);
     tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
-    gen_helper_ptl(temp_shack_top);
+    //gen_helper_ptl(temp_shack_top);
     tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, -8);
 
     if(!found){
@@ -214,7 +214,7 @@ found_t:
     //tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     //gen_helper_ptl(temp_shack_top); 
 
-#if 1       
+#if 0
     TCGv_ptr temp_shack = tcg_temp_new_ptr();
     tcg_gen_ld_ptr(temp_shack, cpu_env, offsetof(CPUState, shack));
     tcg_gen_sub_tl(temp_shack, temp_shack_top, temp_shack); 
@@ -243,7 +243,7 @@ void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
 
     int L_EMPTY = gen_new_label();
     int L_NEQ = gen_new_label();
-    tcg_gen_mov_tl(next_eip, m_next_eip);
+    tcg_gen_mov_tl(m_next_eip, next_eip);
     tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     tcg_gen_ld_ptr(temp_shack, cpu_env, offsetof(CPUState, shack));
 
@@ -263,7 +263,7 @@ void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
     gen_set_label(L_NEQ);
     gen_set_label(L_EMPTY);
 
-#if 1 
+#if  0
     tcg_gen_sub_tl(temp_shack, temp_shack_top, temp_shack); 
     gen_helper_hello2(temp_shack, s_next_eip, s_host_eip);
 #endif
