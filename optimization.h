@@ -47,7 +47,7 @@ struct shadow_pair
 {
     struct list_head l;
     target_ulong guest_eip;
-    unsigned long **shadow_slot;
+    unsigned long *shadow_slot;
 };
 
 void shack_set_shadow(CPUState *env, target_ulong guest_eip, unsigned long *host_eip);

@@ -20,9 +20,20 @@ list_t *shadow_hash_list;
 
 
 static inline int shack_hash(target_ulong guest_eip){
-    return (int)guest_eip % SHACK_HTABLE_SIZE;
+    return (int)guest_eip & (SHACK_HTABLE_SIZE - 1);
 }
-
+void *helper_lookup_shack_retaddr(target_ulong guest_eip)
+{
+    int index = shack_hash(guest_eip);    
+    struct shadow_pair *p = (struct shadow_pair*)shadow_hash_list[index].next;
+    while(!p){
+        if(p->guest_eip == guest_eip)  
+            return (unsigned long*)p->shadow_slot;
+        else 
+            p =(struct shadow_pair*)p->l.next;
+    }
+    return 0;
+}
 static inline void shack_init(CPUState *env)
 {
 
@@ -54,28 +65,13 @@ void shack_set_shadow(CPUState *env, target_ulong guest_eip, unsigned long *host
     while(head){
         pair = (struct shadow_pair *)head;
         if(pair->guest_eip == guest_eip){
-            *(pair->shadow_slot) = host_eip;
+            pair->shadow_slot = host_eip;
             //printf("shack_set:gip = 0x%x, hip = %p\n", guest_eip, host_eip);
             break;
         }
         head = head->next;
     }
-    
-    /* free a pair */
-    /* 
-    if(target){
-        target->prev->next = target->next;
-        if(target->next){
-            target->next->prev = target->prev;
-        }
-        target->next = NULL;
-        target->prev = NULL;
-        free((struct shadow_pair*)target);
-        //env->shadow_ret_count--;
-    }
-    */
 }
-
 /*
  * helper_shack_flush()
  *  Reset shadow stack.
@@ -122,25 +118,24 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
     /* check if next_eip has corresponding tb*/
     TranslationBlock *tb, **ptb1;
     target_ulong pc, cs_base;
-    unsigned long * tc_ptr;
-    int flags, found;
+    unsigned long * tc_ptr = NULL;
+    int flags, found = 1;
     unsigned int h;
     cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
     pc = cs_base + next_eip;
     tb_page_addr_t phys_pc, phys_page1, phys_page2 ;
     target_ulong virt_page2;
-
     phys_pc = get_page_addr_code(env, pc);
-
     phys_page1 = phys_pc & TARGET_PAGE_MASK;
     phys_page2 = -1;
     h = tb_phys_hash_func(phys_pc);
     ptb1 = &tb_phys_hash[h];
-    found = 1;
     for(;;) {
         tb = *ptb1;
-        if (!tb)
-            goto not_found_t;
+        if (!tb){
+            found = 0;
+            break;
+        }
         if (tb->pc == pc &&
                 tb->page_addr[0] == phys_page1 &&
                 tb->cs_base == cs_base &&
@@ -151,81 +146,61 @@ void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
                     TARGET_PAGE_SIZE;
                 phys_page2 = get_page_addr_code(env, virt_page2);
                 if (tb->page_addr[1] == phys_page2)
-                    goto found_t;
+                    break;
             } else {
-                goto found_t;
+                break;
             }
         }
         ptb1 = &tb->phys_hash_next;
     }
-not_found_t:
-    /* if no translated code available, then translate it now */
-    // tb = tb_gen_code(env, pc, cs_base, flags, 0);
-    found = 0;
-    tc_ptr = NULL;
-found_t:
-    /* we add the TB in the virtual pc hash table */
-    //env->tb_jmp_cache[tb_jmp_cache_hash_func(pc)] = tb;
-    // host
     if(found){
         tc_ptr = (unsigned long *)tb->tc_ptr;
         //printf("found!\n");
-    }
-
+    } 
     /* tcg gen code start */
-
     int L_NFULL = gen_new_label();
     TCGv_ptr temp_shack_top = tcg_temp_local_new_ptr();
-    TCGv_ptr temp_shack_end = tcg_temp_local_new_ptr();
-    TCGv_ptr temp_shadow_ret_addr = tcg_temp_local_new_ptr();
-    TCGv_ptr temp_host_ret_addr = tcg_const_local_tl((uint32_t)tc_ptr);
-    TCGv_ptr temp_guest_ret_addr = tcg_const_local_tl(next_eip);
+    TCGv_ptr temp_shack_end = tcg_temp_new_ptr();
+    
+    
+   
     /* if shack full then flush */
     tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     tcg_gen_ld_ptr(temp_shack_end, cpu_env, offsetof(CPUState, shack_end));
     //gen_helper_ptl(temp_shack_top); 
     tcg_gen_brcond_tl(TCG_COND_NE, temp_shack_top, temp_shack_end, L_NFULL);
-    /* stack full, flush shack*/
-    gen_helper_shack_flush(cpu_env);
+        /* stack full, flush shack*/
+        gen_helper_shack_flush(cpu_env);
     /* stack not full */
     gen_set_label(L_NFULL);
+    
+    TCGv_ptr temp_host_ret_addr = tcg_const_tl((uint32_t)tc_ptr);
+    TCGv_ptr temp_guest_ret_addr = tcg_const_tl(next_eip);
     // push guest_ret_addr to shack
     tcg_gen_st_tl(temp_guest_ret_addr, temp_shack_top,0);
-    tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, 8);
-    tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
-    //gen_helper_ptl(temp_shack_top);
-    tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, -8);
-
+    // create a new shadow pair
     if(!found){
-        //not found!!
         //lookup hashtable
         h = shack_hash(next_eip);
         list_t *head = &shadow_hash_list[h];
-        //creat shadow_pair
         struct shadow_pair *new_node = malloc(sizeof(struct shadow_pair));
         list_t *new =  &(new_node->l);
         
         new_node->guest_eip = next_eip;
-        new_node->shadow_slot = &env->shadow_ret_addr[env->shadow_ret_count];
+        new_node->shadow_slot =0;
+        
         //insert shadow_pair into hashtable
         new->next = head->next;
         new->prev = head;
         if(head->next)
             head->next->prev = new;
         head->next = new;
-
-        // generrate tcg code to load host_ret_addr from corresponding shadow_ret_addr
-        tcg_gen_ld_ptr(temp_shadow_ret_addr, cpu_env, offsetof(CPUState, shadow_ret_addr));
-        tcg_gen_addi_ptr(temp_shadow_ret_addr, temp_shadow_ret_addr, env->shadow_ret_count * sizeof(unsigned long *));
-        tcg_gen_ld_tl(temp_host_ret_addr, temp_shadow_ret_addr, 0); 
-        env->shadow_ret_count++;
+        
+        gen_helper_lookup_shack_retaddr(temp_host_ret_addr,temp_guest_ret_addr);
     }
     tcg_gen_st_tl(temp_host_ret_addr, temp_shack_top, 4);
-    //tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, 8);
-    //gen_helper_ptl(temp_shack_top); 
-    //tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
-    //tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
-    //gen_helper_ptl(temp_shack_top); 
+    tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, 8);
+    tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
 
 #if 0
     TCGv_ptr temp_shack = tcg_temp_new_ptr();
@@ -236,7 +211,6 @@ found_t:
 #endif
     tcg_temp_free(temp_shack_top);
     tcg_temp_free(temp_shack_end);
-    tcg_temp_free(temp_shadow_ret_addr);
     tcg_temp_free(temp_host_ret_addr);
     tcg_temp_free(temp_guest_ret_addr);
 }
@@ -248,32 +222,32 @@ found_t:
 void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
 {
     TCGv_ptr temp_shack_top = tcg_temp_local_new_ptr();
-    TCGv_ptr temp_shack = tcg_temp_local_new_ptr();
+    TCGv_ptr temp_shack = tcg_temp_new_ptr();
     TCGv s_next_eip = tcg_temp_local_new();
     TCGv s_host_eip = tcg_temp_local_new();
     TCGv m_next_eip = tcg_temp_local_new();
 
-    int L_EMPTY = gen_new_label();
-    int L_NEQ = gen_new_label();
+    int L_POP_INVALID = gen_new_label();
     tcg_gen_mov_tl(m_next_eip, next_eip);
     tcg_gen_ld_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
     tcg_gen_ld_ptr(temp_shack, cpu_env, offsetof(CPUState, shack));
 
-    tcg_gen_brcond_tl(TCG_COND_EQ, temp_shack_top, temp_shack, L_EMPTY);
+    tcg_gen_brcond_tl(TCG_COND_EQ, temp_shack_top, temp_shack, L_POP_INVALID);
 
     tcg_gen_addi_ptr(temp_shack_top, temp_shack_top, -8);
     tcg_gen_ld_tl(s_next_eip, temp_shack_top, 0);
     tcg_gen_ld_tl(s_host_eip, temp_shack_top, 4);
     /* how to compare and set jump?  */
     tcg_gen_st_ptr(temp_shack_top, cpu_env, offsetof(CPUState, shack_top));
-
-    tcg_gen_brcond_tl(TCG_COND_NE, s_next_eip, m_next_eip, L_NEQ);
-    tcg_gen_brcond_tl(TCG_COND_EQ, s_host_eip, tcg_const_tl(0), L_NEQ);
     
+    tcg_gen_brcond_tl(TCG_COND_NE, s_next_eip, m_next_eip, L_POP_INVALID);
+    tcg_gen_brcond_tl(TCG_COND_EQ, s_host_eip, tcg_const_tl(0), L_POP_INVALID);
+    
+    /* if(guest_eip == shack_guest_eip  && shack_host_return_addr !=0)*/
     *gen_opc_ptr++ = INDEX_op_jmp;
     *gen_opparam_ptr++ = GET_TCGV_i32(s_host_eip);
-    gen_set_label(L_NEQ);
-    gen_set_label(L_EMPTY);
+    
+    gen_set_label(L_POP_INVALID);
 
 #if  0
     tcg_gen_sub_tl(temp_shack, temp_shack_top, temp_shack); 
@@ -287,6 +261,8 @@ void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
     tcg_temp_free(m_next_eip);
 
 }
+
+
 
 /*
  * Indirect Branch Target Cache
@@ -331,7 +307,6 @@ void update_ibtc_entry(TranslationBlock *tb)
  */
 static inline void ibtc_init(CPUState *env)
 {
-    //env->ibtc_table = (struct ibtc_table*)malloc(sizeof(struct ibtc_table));
     memset(&ibtc_table, 0, sizeof(struct ibtc_table));
 }
 
