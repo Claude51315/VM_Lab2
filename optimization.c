@@ -60,6 +60,20 @@ void shack_set_shadow(CPUState *env, target_ulong guest_eip, unsigned long *host
         }
         head = head->next;
     }
+    
+    /* free a pair */
+    /* 
+    if(target){
+        target->prev->next = target->next;
+        if(target->next){
+            target->next->prev = target->prev;
+        }
+        target->next = NULL;
+        target->prev = NULL;
+        free((struct shadow_pair*)target);
+        //env->shadow_ret_count--;
+    }
+    */
 }
 
 /*
@@ -105,7 +119,6 @@ void helper_ptl(target_ulong tll)
 }
 void push_shack(CPUState *env, TCGv_ptr cpu_env, target_ulong next_eip)
 {
-
     /* check if next_eip has corresponding tb*/
     TranslationBlock *tb, **ptb1;
     target_ulong pc, cs_base;
@@ -234,7 +247,6 @@ found_t:
  */
 void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
 {
-
     TCGv_ptr temp_shack_top = tcg_temp_local_new_ptr();
     TCGv_ptr temp_shack = tcg_temp_local_new_ptr();
     TCGv s_next_eip = tcg_temp_local_new();
@@ -281,6 +293,8 @@ void pop_shack(TCGv_ptr cpu_env, TCGv next_eip)
  */
 __thread int update_ibtc;
 
+static struct ibtc_table ibtc_table;
+
 /*
  * helper_lookup_ibtc()
  *  Look up IBTC. Return next host eip if cache hit or
@@ -288,6 +302,13 @@ __thread int update_ibtc;
  */
 void *helper_lookup_ibtc(target_ulong guest_eip)
 {
+    int index = guest_eip & IBTC_CACHE_MASK;
+    struct jmp_pair *jp = &ibtc_table.htable[index];
+    if(jp && jp->guest_eip == guest_eip )
+    {
+        return jp->tb->tc_ptr;
+    }
+    update_ibtc = 1;
     return optimization_ret_addr;
 }
 
@@ -297,6 +318,11 @@ void *helper_lookup_ibtc(target_ulong guest_eip)
  */
 void update_ibtc_entry(TranslationBlock *tb)
 {
+    target_ulong guest_eip = tb->pc;
+    int index = guest_eip & IBTC_CACHE_MASK;
+    ibtc_table.htable[index].guest_eip = guest_eip;
+    ibtc_table.htable[index].tb = tb;
+    update_ibtc = 0;
 }
 
 /*
@@ -305,6 +331,8 @@ void update_ibtc_entry(TranslationBlock *tb)
  */
 static inline void ibtc_init(CPUState *env)
 {
+    //env->ibtc_table = (struct ibtc_table*)malloc(sizeof(struct ibtc_table));
+    memset(&ibtc_table, 0, sizeof(struct ibtc_table));
 }
 
 /*
