@@ -1,3 +1,9 @@
+NCTU Virtual Machine Course Lab2
+
+implement shadow stack and IBTC in optimization.h and optimization.c
+
+=====
+
 Read the documentation in qemu-doc.html.
 
 Fabrice Bellard.
